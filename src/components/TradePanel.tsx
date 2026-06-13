@@ -16,6 +16,7 @@ export default function TradePanel() {
     buyGood,
     sellGood,
     getCargoUsed,
+    getBestCrewBonus,
   } = useGameStore();
 
   const [quantities, setQuantities] = React.useState<Record<string, number>>(
@@ -27,6 +28,7 @@ export default function TradePanel() {
   const cargoUsed = getCargoUsed();
   const cargoCapacity = ship.cargoCapacity;
   const cargoPercent = (cargoUsed / cargoCapacity) * 100;
+  const merchantBonus = getBestCrewBonus('merchant');
 
   const setQuantity = (goodId: string, value: number) => {
     setQuantities((prev) => ({ ...prev, [goodId]: Math.max(1, value) }));
@@ -35,7 +37,8 @@ export default function TradePanel() {
   const getMaxBuy = (goodId: string) => {
     const price = currentPrices[goodId];
     if (!price) return 0;
-    const byCredits = Math.floor(credits / price);
+    const adjustedPrice = Math.max(1, Math.round(price * (1 - merchantBonus)));
+    const byCredits = Math.floor(credits / adjustedPrice);
     const byCargo = cargoCapacity - cargoUsed;
     return Math.max(0, Math.min(byCredits, byCargo));
   };
@@ -98,6 +101,8 @@ export default function TradePanel() {
         <div className="grid grid-cols-3 gap-4">
           {GOODS.map((good) => {
             const price = currentPrices[good.id] || good.basePrice;
+            const buyPrice = Math.max(1, Math.round(price * (1 - merchantBonus)));
+            const sellPrice = Math.round(price * (1 + merchantBonus));
             const qty = quantities[good.id] || 1;
             const maxBuy = getMaxBuy(good.id);
             const maxSell = getMaxSell(good.id);
@@ -130,6 +135,11 @@ export default function TradePanel() {
                     <div className="text-xs text-slate-500">
                       基准 ₵{good.basePrice}
                     </div>
+                    {merchantBonus > 0 && (
+                      <div className="text-[10px] text-neon-yellow mt-0.5">
+                        买 ₵{buyPrice} · 卖 ₵{sellPrice}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -183,7 +193,7 @@ export default function TradePanel() {
                         : 'cursor-not-allowed bg-slate-700 opacity-50'
                     )}
                   >
-                    买入 ₵{(price * qty).toLocaleString()}
+                    买入 ₵{(buyPrice * qty).toLocaleString()}
                   </button>
                   <button
                     onClick={() => handleSell(good.id)}
@@ -195,7 +205,7 @@ export default function TradePanel() {
                         : 'cursor-not-allowed bg-slate-700 opacity-50'
                     )}
                   >
-                    卖出 ₵{(price * qty).toLocaleString()}
+                    卖出 ₵{(sellPrice * qty).toLocaleString()}
                   </button>
                 </div>
               </div>

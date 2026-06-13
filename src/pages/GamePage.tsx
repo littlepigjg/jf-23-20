@@ -8,9 +8,9 @@ import StarMap from '../components/StarMap';
 import TradePanel from '../components/TradePanel';
 import UpgradePanel from '../components/UpgradePanel';
 import QuestPanel from '../components/QuestPanel';
+import CrewPanel from '../components/CrewPanel';
 import { rollTravelEvent } from '../utils/travelEngine';
 import { createInitialBattleState } from '../utils/battleEngine';
-import type { GameState } from '../types/game';
 import { NAV_ITEMS } from '../data/navigation';
 
 export default function GamePage() {
@@ -29,6 +29,7 @@ export default function GamePage() {
     saveGame,
     ship,
     currentPlanetId,
+    tickCrewLoyalty,
   } = useGameStore();
 
   const lastTimeRef = useRef<number>(performance.now());
@@ -47,11 +48,12 @@ export default function GamePage() {
       const dt = Math.min(0.05, (now - lastTimeRef.current) / 1000);
       lastTimeRef.current = now;
       updateTravel(dt);
+      tickCrewLoyalty();
       rafRef.current = requestAnimationFrame(loop);
     };
     rafRef.current = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [updateTravel]);
+  }, [updateTravel, tickCrewLoyalty]);
 
   useEffect(() => {
     const isTraveling = !!travelState?.isTraveling;
@@ -93,6 +95,8 @@ export default function GamePage() {
         return <TradePanel />;
       case 'upgrade':
         return <UpgradePanel />;
+      case 'crew':
+        return <CrewPanel />;
       case 'quests':
         return <QuestPanel />;
       default:

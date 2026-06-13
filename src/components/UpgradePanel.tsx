@@ -16,10 +16,12 @@ const UpgradePanel = () => {
     upgradeCargo,
     upgradeWeapon,
     repairShield,
+    getBestCrewBonus,
   } = useGameStore();
 
+  const engineerBonus = getBestCrewBonus('engineer');
   const shieldMissing = ship.maxShield - ship.currentShield;
-  const repairCost = shieldMissing * 2;
+  const repairCost = Math.max(1, Math.round(shieldMissing * 2 * (1 - engineerBonus)));
   const showRepair = shieldMissing > 0;
 
   const shieldNext = ship.shieldLevel < SHIELD_UPGRADES.length
@@ -195,6 +197,11 @@ const UpgradePanel = () => {
               </div>
               <div className="text-sm text-slate-400">
                 当前护盾 {ship.currentShield} / {ship.maxShield}（缺失 {shieldMissing} 点）
+                {engineerBonus > 0 && (
+                  <span className="ml-2 text-neon-orange">
+                    · 工程师折扣 -{(engineerBonus * 100).toFixed(0)}%
+                  </span>
+                )}
               </div>
             </div>
           </div>

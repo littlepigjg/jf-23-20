@@ -10,5 +10,6 @@ export const NAV_ITEMS: NavItem[] = [
   { key: 'starmap', label: '星图', icon: '🗺️' },
   { key: 'trade', label: '贸易', icon: '💹' },
   { key: 'upgrade', label: '升级', icon: '🔧' },
+  { key: 'crew', label: '船员', icon: '👥' },
   { key: 'quests', label: '任务', icon: '📋' },
 ];

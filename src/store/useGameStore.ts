@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GameState, CargoItem, QuestState, BattleState, QuestStatus } from '../types/game';
+import type { GameState, CargoItem, QuestState, BattleState, QuestStatus, CrewMember } from '../types/game';
 import { PLANETS, getDistance } from '../data/planets';
 import { QUESTS, getQuest } from '../data/quests';
 import {
@@ -14,6 +14,12 @@ import { MarketService } from '../services/marketService';
 import { getGood } from '../data/goods';
 import { getRandomEvent } from '../data/events';
 import { localStorageAdapter, buildSavePayload } from '../hooks/usePersistence';
+import {
+  CREW_TEMPLATES,
+  getNavigatorBonus,
+  getEngineerBonus,
+  getMerchantBonus,
+} from '../data/crew';
 
 export interface GameStore extends GameState {
   hasSave: () => boolean;
@@ -56,6 +62,14 @@ export interface GameStore extends GameState {
     goodId?: string,
     planetId?: string
   ) => void;
+
+  hireCrew: (templateId: string) => boolean;
+  fireCrew: (crewId: string) => boolean;
+  payCrewSalary: (crewId: string) => boolean;
+  payAllCrewSalaries: () => { paid: number; failed: number };
+  tickCrewLoyalty: () => void;
+  getTotalCrewSalary: () => number;
+  getBestCrewBonus: (role: 'navigator' | 'engineer' | 'merchant') => number;
 }
 
 const initFromMarket = () => {
@@ -97,6 +111,8 @@ const createInitialState = (): GameState => {
     battleState: null,
     eventState: null,
     currentView: 'starmap',
+    crew: [],
+    lastTickTime: Date.now(),
   };
 };
 
@@ -117,10 +133,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       parsed.marketState
     );
 
+    const now = Date.now();
+    const crew = Array.isArray(parsed.crew) ? parsed.crew : [];
+    const lastTickTime = parsed.lastTickTime || now;
+
     set({
       ...parsed,
       marketState: market,
       planetPrices: prices,
+      crew,
+      lastTickTime,
     });
     return { success: true, offlineTicks: ticksApplied };
   },
@@ -176,7 +198,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const price = state.planetPrices[state.currentPlanetId]?.[goodId];
     if (!price || quantity <= 0) return false;
 
-    const totalCost = price * quantity;
+    const merchantBonus = get().getBestCrewBonus('merchant');
+    const adjustedPrice = Math.max(1, Math.round(price * (1 - merchantBonus)));
+
+    const totalCost = adjustedPrice * quantity;
     if (totalCost > state.credits) return false;
 
     const used = state.cargo.reduce((s, c) => s + c.quantity, 0);
@@ -187,12 +212,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const existing = newCargo.find((c) => c.goodId === goodId);
     if (existing) {
       const newQty = existing.quantity + quantity;
-      const newAvg = (existing.avgCost * existing.quantity + price * quantity) / newQty;
+      const newAvg = (existing.avgCost * existing.quantity + adjustedPrice * quantity) / newQty;
       newCargo = newCargo.map((c) =>
         c.goodId === goodId ? { ...c, quantity: newQty, avgCost: Math.round(newAvg) } : c
       );
     } else {
-      newCargo.push({ goodId, quantity, avgCost: price });
+      newCargo.push({ goodId, quantity, avgCost: adjustedPrice });
     }
 
     const { market, planetPrices } = MarketService.applyTradeImpact(
@@ -215,7 +240,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const cargoItem = state.cargo.find((c) => c.goodId === goodId);
     if (!price || !cargoItem || quantity <= 0 || quantity > cargoItem.quantity) return false;
 
-    const totalRevenue = price * quantity;
+    const merchantBonus = get().getBestCrewBonus('merchant');
+    const adjustedPrice = Math.round(price * (1 + merchantBonus));
+    const totalRevenue = adjustedPrice * quantity;
     const newCredits = state.credits + totalRevenue;
     let newCargo: CargoItem[];
     if (cargoItem.quantity === quantity) {
@@ -323,7 +350,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = get();
     const missing = state.ship.maxShield - state.ship.currentShield;
     if (missing <= 0) return false;
-    const cost = missing * 2;
+    const engineerBonus = get().getBestCrewBonus('engineer');
+    const cost = Math.max(1, Math.round(missing * 2 * (1 - engineerBonus)));
     if (state.credits < cost) return false;
 
     set({
@@ -338,7 +366,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const state = get();
     if (state.travelState || toPlanetId === state.currentPlanetId) return;
 
-    const duration = 3000;
+    const navigatorBonus = get().getBestCrewBonus('navigator');
+    const baseDuration = 3000;
+    const duration = Math.max(500, Math.round(baseDuration * (1 - navigatorBonus)));
     set({
       travelState: {
         isTraveling: true,
@@ -541,5 +571,157 @@ export const useGameStore = create<GameStore>((set, get) => ({
     set({ credits: newCredits, quests: newQuests, statistics: stats });
     get().saveGame();
     return true;
+  },
+
+  getBestCrewBonus: (role) => {
+    const state = get();
+    const roleCrew = state.crew.filter((c) => c.role === role);
+    if (roleCrew.length === 0) return 0;
+    const bestSkill = Math.max(...roleCrew.map((c) => c.skillLevel));
+    switch (role) {
+      case 'navigator':
+        return getNavigatorBonus(bestSkill);
+      case 'engineer':
+        return getEngineerBonus(bestSkill);
+      case 'merchant':
+        return getMerchantBonus(bestSkill);
+      default:
+        return 0;
+    }
+  },
+
+  getTotalCrewSalary: () => {
+    const state = get();
+    return state.crew.reduce((sum, c) => sum + c.salary, 0);
+  },
+
+  hireCrew: (templateId) => {
+    const state = get();
+    const template = CREW_TEMPLATES.find((t) => t.id === templateId);
+    if (!template) return false;
+    if (state.credits < template.hireCost) return false;
+
+    const alreadyHired = state.crew.some((c) => c.templateId === templateId);
+    if (alreadyHired) return false;
+
+    const now = Date.now();
+    const newMember: CrewMember = {
+      id: `${template.id}_${now}_${Math.random().toString(36).slice(2, 7)}`,
+      templateId: template.id,
+      name: template.name,
+      role: template.role,
+      icon: template.icon,
+      description: template.description,
+      skillLevel: template.skillLevel,
+      salary: template.salary,
+      loyalty: 80,
+      lastPaidAt: now,
+      hiredAt: now,
+    };
+
+    set({
+      credits: state.credits - template.hireCost,
+      crew: [...state.crew, newMember],
+    });
+    get().saveGame();
+    return true;
+  },
+
+  fireCrew: (crewId) => {
+    const state = get();
+    const member = state.crew.find((c) => c.id === crewId);
+    if (!member) return false;
+
+    set({
+      crew: state.crew.filter((c) => c.id !== crewId),
+    });
+    get().saveGame();
+    return true;
+  },
+
+  payCrewSalary: (crewId) => {
+    const state = get();
+    const member = state.crew.find((c) => c.id === crewId);
+    if (!member) return false;
+    if (state.credits < member.salary) return false;
+
+    const now = Date.now();
+    const updatedCrew = state.crew.map((c) =>
+      c.id === crewId
+        ? { ...c, lastPaidAt: now, loyalty: Math.min(100, c.loyalty + 10) }
+        : c
+    );
+
+    set({
+      credits: state.credits - member.salary,
+      crew: updatedCrew,
+    });
+    get().saveGame();
+    return true;
+  },
+
+  payAllCrewSalaries: () => {
+    const state = get();
+    if (state.crew.length === 0) return { paid: 0, failed: 0 };
+
+    let paid = 0;
+    let failed = 0;
+    let remainingCredits = state.credits;
+    const now = Date.now();
+
+    const updatedCrew = state.crew.map((c) => {
+      if (remainingCredits >= c.salary) {
+        remainingCredits -= c.salary;
+        paid++;
+        return { ...c, lastPaidAt: now, loyalty: Math.min(100, c.loyalty + 10) };
+      } else {
+        failed++;
+        return c;
+      }
+    });
+
+    const totalPaid = state.credits - remainingCredits;
+    set({
+      credits: state.credits - totalPaid,
+      crew: updatedCrew,
+    });
+    get().saveGame();
+    return { paid, failed };
+  },
+
+  tickCrewLoyalty: () => {
+    const state = get();
+    if (state.crew.length === 0) {
+      set({ lastTickTime: Date.now() });
+      return;
+    }
+
+    const now = Date.now();
+    const msPerDay = 60_000;
+    const elapsed = now - state.lastTickTime;
+    if (elapsed < msPerDay) return;
+
+    const daysPassed = Math.floor(elapsed / msPerDay);
+    const newLastTick = state.lastTickTime + daysPassed * msPerDay;
+
+    const survivingCrew: CrewMember[] = [];
+    for (const c of state.crew) {
+      let newLoyalty = c.loyalty;
+      const timeSincePaid = now - c.lastPaidAt;
+      const daysUnpaid = Math.floor(timeSincePaid / msPerDay);
+
+      if (daysUnpaid >= 1) {
+        newLoyalty = Math.max(0, newLoyalty - daysUnpaid * 8);
+      }
+
+      if (newLoyalty > 0) {
+        survivingCrew.push({ ...c, loyalty: newLoyalty });
+      }
+    }
+
+    set({
+      crew: survivingCrew,
+      lastTickTime: newLastTick,
+    });
   },
 }));

@@ -142,6 +142,33 @@ export interface Statistics {
   distanceTraveled: number;
 }
 
+export type CrewRole = 'navigator' | 'engineer' | 'merchant';
+
+export interface CrewTemplate {
+  id: string;
+  name: string;
+  role: CrewRole;
+  icon: string;
+  description: string;
+  skillLevel: number;
+  salary: number;
+  hireCost: number;
+}
+
+export interface CrewMember {
+  id: string;
+  templateId: string;
+  name: string;
+  role: CrewRole;
+  icon: string;
+  description: string;
+  skillLevel: number;
+  salary: number;
+  loyalty: number;
+  lastPaidAt: number;
+  hiredAt: number;
+}
+
 export interface GameState {
   credits: number;
   currentPlanetId: string;
@@ -154,5 +181,7 @@ export interface GameState {
   travelState: TravelState | null;
   battleState: BattleState | null;
   eventState: GameEvent | null;
-  currentView: 'starmap' | 'trade' | 'upgrade' | 'quests';
+  currentView: 'starmap' | 'trade' | 'upgrade' | 'quests' | 'crew';
+  crew: CrewMember[];
+  lastTickTime: number;
 }

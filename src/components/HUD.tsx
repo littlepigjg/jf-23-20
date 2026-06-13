@@ -7,6 +7,7 @@ export default function HUD() {
   const cargo = useGameStore((s) => s.cargo);
   const currentPlanetId = useGameStore((s) => s.currentPlanetId);
   const statistics = useGameStore((s) => s.statistics);
+  const crew = useGameStore((s) => s.crew);
 
   const planet = getPlanet(currentPlanetId);
   const cargoUsed = cargo.reduce((sum, c) => sum + c.quantity, 0);
@@ -26,6 +27,16 @@ export default function HUD() {
       : cargoPercent > 70
       ? 'bg-neon-orange'
       : 'bg-neon-green';
+
+  const lowestLoyalty = crew.length > 0 ? Math.min(...crew.map((c) => c.loyalty)) : null;
+  const loyaltyColor =
+    lowestLoyalty === null
+      ? 'text-slate-400'
+      : lowestLoyalty > 60
+      ? 'text-neon-green'
+      : lowestLoyalty > 30
+      ? 'text-neon-yellow'
+      : 'text-neon-red';
 
   return (
     <div className="w-full h-[60px] panel flex items-center px-4 gap-6 flex-shrink-0">
@@ -63,6 +74,16 @@ export default function HUD() {
               {cargoUsed}/{ship.cargoCapacity}
             </span>
           </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-sm">👥</span>
+          <span className={`text-xs font-mono font-semibold ${loyaltyColor}`}>
+            {crew.length > 0 ? `${crew.length}名船员` : '无船员'}
+            {crew.length > 0 && lowestLoyalty !== null && (
+              <span className="ml-1 opacity-75">· 忠诚{lowestLoyalty}</span>
+            )}
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
